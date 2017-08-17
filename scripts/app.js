@@ -1,10 +1,13 @@
 (function () {
     'use strict';
+    const DB_NAME = "ratp-pwa-db";
+    const DB_STORE_NAME = "timetable-os";
+    const DB_VERSION = 1;
 
     var app = {
         isLoading: true,
         visibleCards: {},
-        selectedTimetables: [],
+        selectedLines: [],
         spinner: document.querySelector('.loader'),
         cardTemplate: document.querySelector('.cardTemplate'),
         container: document.querySelector('.main'),
@@ -35,12 +38,13 @@
         var selected = select.options[select.selectedIndex];
         var key = selected.value;
         var label = selected.textContent;
-        if (!app.selectedTimetables) {
-            app.selectedTimetables = [];
+        if (!app.selectedLines) {
+            app.selectedLines = [];
         }
         app.getSchedule(key, label);
-        app.selectedTimetables.push({key: key, label: label});
+        app.selectedLines.push({key: key, label: label});
         app.toggleAddDialog(false);
+        app.saveSelectedLine({key: key, label: label});
     });
 
     document.getElementById('butAddCancel').addEventListener('click', function () {
@@ -88,10 +92,10 @@
         card.querySelector('.card-last-updated').textContent = data.created;
 
         var scheduleUIs = card.querySelectorAll('.schedule');
-        for(var i = 0; i<4; i++) {
+        for (var i = 0; i < 4; i++) {
             var schedule = schedules[i];
             var scheduleUI = scheduleUIs[i];
-            if(schedule && scheduleUI) {
+            if (schedule && scheduleUI) {
                 scheduleUI.querySelector('.message').textContent = schedule.message;
             }
         }
@@ -125,31 +129,13 @@
                     result.schedules = response.result.schedules;
                     app.updateTimetableCard(result);
                 }
-            } else {
-                // Return the initial weather forecast since no data is available.
-                app.updateTimetableCard(initialStationTimetable);
             }
         };
         request.open('GET', url);
         request.send();
     };
 
-    // Iterate all of the cards and attempt to get the latest forecast data
-    app.updateSchedules = function () {
-        var keys = Object.keys(app.visibleCards);
-        keys.forEach(function (key) {
-            app.getSchedule(key);
-        });
-    };
-
-    /*
-     * Fake weather data that is presented when the user first uses the app,
-     * or when the user has not saved any cities. See startup code for more
-     * discussion.
-     */
-
     var initialStationTimetable = {
-
         key: 'metros/1/bastille/A',
         label: 'Bastille, Direction La Défense',
         created: '2017-07-18T17:08:42+02:00',
@@ -164,16 +150,73 @@
                 message: '5 mn'
             }
         ]
-
-
     };
+
+    // Iterate all of the cards and attempt to get the latest forecast data
+    app.updateSchedules = function () {
+        var keys = Object.keys(app.visibleCards);
+        keys.forEach(function (key) {
+            app.getSchedule(key);
+        });
+    };
+
+    app.saveSelectedLine = function (timetable) {
+        if (!('indexedDB' in window)) {
+            console.log('This browser doesn\'t support IndexedDB');
+            return;
+        }
+
+        var request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onerror = function (event) {
+            console.log("error " + event);
+        };
+        request.onsuccess = function (event) {
+            var customerObjectStore = event.target.result.transaction(DB_STORE_NAME, "readwrite").objectStore(DB_STORE_NAME);
+            customerObjectStore.add(timetable);
+        };
+    };
+
+    app.listSavedLines = function () {
+        var db;
+
+        var request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = function () {
+            request.result.createObjectStore(DB_STORE_NAME, {keyPath: "key"});
+            console.log("db onupgrade");
+        };
+        request.onsuccess = function () {
+            db = request.result;
+            console.log("db onsuccess");
+            var transaction = db.transaction(DB_STORE_NAME, IDBTransaction.READ_ONLY);
+            var objectStore = transaction.objectStore(DB_STORE_NAME);
+            var items = [];
+
+            transaction.oncomplete = function (evt) {
+                app.initData(items);
+            };
+
+            var cursorRequest = objectStore.openCursor();
+
+            cursorRequest.onerror = function (error) {
+                console.log(error);
+            };
+
+            cursorRequest.onsuccess = function (evt) {
+                var cursor = evt.target.result;
+                if (cursor) {
+                    items.push(cursor.value);
+                    cursor.continue();
+                }
+            };
+
+        };
+    }
 
     var initialWeatherForecast = {
         key: 'metros/1/bastille/A',
         label: 'Bastille, Direction La Défense',
     };
-    // TODO uncomment line below to test app with fake data
-    // app.updateForecastCard(initialWeatherForecast);
 
     /************************************************************************
      *
@@ -186,24 +229,26 @@
      *   SimpleDB (https://gist.github.com/inexorabletash/c8069c042b734519680c)
      ************************************************************************/
 
-    app.selectedCities = localStorage.selectedCities;
-    if (app.selectedCities) {
-        app.selectedCities = JSON.parse(app.selectedCities);
-        app.selectedCities.forEach(function (city) {
-            app.getForecast(city.key, city.label);
-        });
-    } else {
-        /* The user is using the app for the first time, or the user has not
-        * saved any cities, so show the user some fake data. A real app in this
-        * scenario could guess the user's location via IP lookup and then inject
-        * that data into the page.
-        */
-        app.getSchedule(initialWeatherForecast.key, initialWeatherForecast.label);
-        app.selectedCities = [
-            {key: initialWeatherForecast.key, label: initialWeatherForecast.label}
-        ];
-        app.saveSelectedCities();
+    app.initData = function (lines) {
+        console.log("Loaded Lines: " + lines);
+        app.selectedLines = lines;
+        if (app.selectedLines.length > 0) {
+            console.log('Found Time Tables');
+            app.selectedLines.forEach(function (timetable) {
+                app.getSchedule(timetable.key, timetable.label);
+            });
+        } else {
+            // The user is using the app for the first time, or the user has not
+            // saved any cities
+            console.log('No Lines Saved');
+            app.getSchedule(initialWeatherForecast.key, initialWeatherForecast.label);
+            app.selectedLines = [
+                {key: initialWeatherForecast.key, label: initialWeatherForecast.label}
+            ];
+        }
     }
+
+    app.listSavedLines();
     /*
      // TODO add service worker code here
      if ('serviceWorker' in navigator) {
