@@ -112,22 +112,40 @@
      * Methods for dealing with the model
      *
      ****************************************************************************/
-
+    app.mapResponseToModel = function (key, label, json) {
+        var result = {};
+        result.key = key;
+        result.label = label;
+        result.created = json._metadata.date;
+        result.schedules = json.result.schedules;
+        return result;
+    }
 
     app.getSchedule = function (key, label) {
         var url = 'https://api-ratp.pierre-grimaud.fr/v3/schedules/' + key;
+
+        if ('caches' in window) {
+            /*
+             * Check if the service worker has already cached this city's weather
+             * data. If the service worker has the data, then display the cached
+             * data while the app fetches the latest data.
+             */
+            caches.match(url).then(function(response) {
+                console.log("Match in cache for: "+url);
+                if (response) {
+                    response.json().then(function updateFromCache(json) {
+                        app.updateTimetableCard(app.mapResponseToModel(key,label,json));
+                    });
+                }
+            });
+        }
 
         var request = new XMLHttpRequest();
         request.onreadystatechange = function () {
             if (request.readyState === XMLHttpRequest.DONE) {
                 if (request.status === 200) {
                     var response = JSON.parse(request.response);
-                    var result = {};
-                    result.key = key;
-                    result.label = label;
-                    result.created = response._metadata.date;
-                    result.schedules = response.result.schedules;
-                    app.updateTimetableCard(result);
+                    app.updateTimetableCard(app.mapResponseToModel(key,label,response));
                 }
             }
         };
