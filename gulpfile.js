@@ -5,14 +5,19 @@ var gulp = require('gulp');
 gulp.task('generate-service-worker', function(callback) {
     var path = require('path');
     var swPrecache = require('sw-precache');
-    var rootDir = 'public';
+    var rootDir = '.';
 
-    swPrecache.write(path.join(rootDir, './service-worker.js'), {
-        staticFileGlobs: [rootDir + '/**/*.{js,html,css,png,jpg,gif,svg}'],
-        stripPrefix: rootDir,
+    swPrecache.write(path.join("public", './service-worker.js'), {
         runtimeCaching: [{
             urlPattern: /^https:\/\/api-ratp\.pierre-grimaud\.fr\/v3\/schedules/,
             handler: 'cacheFirst'
-        }]
+        }],
+        staticFileGlobs: [
+            rootDir + '/styles/**.css',
+            rootDir + '/**.html',
+            rootDir + '/images/**.*',
+            rootDir + '/scripts/**.js'
+        ],
+        stripPrefix: rootDir
     }, callback);
 });
