@@ -4,6 +4,7 @@
 - [x] Usar IndexedDB
 - [x] Usar sw-precache
 - [x] Desplegar en firebase
+- [x] Subir reportes
 
 ## Entregables
 Deploy Firebase: https://ratp-pwa-b5d37.firebaseapp.com/
